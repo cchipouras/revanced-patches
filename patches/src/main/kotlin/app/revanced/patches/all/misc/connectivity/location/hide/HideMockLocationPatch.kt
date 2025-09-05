@@ -22,8 +22,11 @@ val hideMockLocationPatch = bytecodePatch(
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
-                val ref = instruction.getReference<MethodReference>() ?: return@filter null
-                val target = fromMethodReference<MethodCall>(ref) ?: return@filter null
+                // EXPLICIT generic to avoid Nothing
+                val ref: MethodReference = instruction.getReference<MethodReference>() ?: return@filter null
+                // EXPLICIT enum type parameter; keep the value as MethodCall?
+                val target: MethodCall? = fromMethodReference<MethodCall>(ref)
+                if (target == null) return@filter null
 
                 when (instruction.opcode) {
                     Opcode.INVOKE_VIRTUAL,
@@ -51,7 +54,7 @@ val hideMockLocationPatch = bytecodePatch(
                 val impl = method.implementation ?: return@transform
                 val instructions = impl.instructions
 
-                // Only patch when a MOVE_RESULT* is found. Otherwise skip safely.
+                // Only patch when a MOVE_RESULT* is actually present. Otherwise skip.
                 val maxLookahead = 12
                 var moveResultIndex: Int? = null
                 var i = index + 1
@@ -68,10 +71,7 @@ val hideMockLocationPatch = bytecodePatch(
                     i++
                 }
 
-                if (moveResultIndex == null) {
-                    // No legal target; skip this call site to avoid build failures.
-                    return@transform
-                }
+                if (moveResultIndex == null) return@transform
 
                 method.replaceInstruction(moveResultIndex, "const/4 v$targetReg, 0x0")
             }
@@ -79,13 +79,14 @@ val hideMockLocationPatch = bytecodePatch(
     )
 }
 
+// IMPORTANT: This enum is the concrete type used for fromMethodReference<T>()
+// Make sure the method names (including case) match your target.
 private enum class MethodCall(
     override val definedClassName: String,
     override val methodName: String,
     override val methodParams: Array<String>,
     override val returnType: String,
 ) : IMethodCall {
-    // Use the exact case used in your target app. If it’s "isMock", change it back to lowercase.
     IsMock("Landroid/location/Location;", "isMock", emptyArray(), "Z"),
     IsFromMockProvider("Landroid/location/Location;", "isFromMockProvider", emptyArray(), "Z"),
 }
