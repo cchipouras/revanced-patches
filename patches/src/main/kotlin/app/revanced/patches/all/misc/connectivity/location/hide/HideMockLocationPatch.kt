@@ -22,18 +22,9 @@ val hideMockLocationPatch = bytecodePatch(
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
-                val ref = instruction.getReference()
-                // If the reference isn't a MethodReference, skip
-                if (ref !is MethodReference) return@filter null
-
-                val target = try {
-                    fromMethodReference(ref)
-                } catch (_: Throwable) {
-                    null
-                }
-                // Make 100% sure it's the correct type—accept only genuine IMethodCall
-                val methodCall = target as? IMethodCall ?: return@filter null
-
+                val ref = instruction.getReference<MethodReference>() ?: return@filter null
+                val target = fromMethodReference(ref)
+                if (target !is IMethodCall) return@filter null
                 when (instruction.opcode) {
                     Opcode.INVOKE_VIRTUAL,
                     Opcode.INVOKE_INTERFACE,
@@ -50,7 +41,6 @@ val hideMockLocationPatch = bytecodePatch(
             },
             transform = transform@{ method, entry ->
                 val (invokeInsn, index) = entry
-                // Only accept supported instruction types; otherwise, skip
                 val targetReg: Int = when (invokeInsn) {
                     is FiveRegisterInstruction -> invokeInsn.registerC
                     is RegisterRangeInstruction -> invokeInsn.startRegister
@@ -59,14 +49,12 @@ val hideMockLocationPatch = bytecodePatch(
                 val impl = method.implementation ?: return@transform
                 val nextIndex = index + 1
                 if (nextIndex >= impl.instructions.size) return@transform
-                // Overwrite with constant false
                 method.replaceInstruction(nextIndex, "const/4 v$targetReg, 0x0")
             }
         )
     )
 }
 
-// This enum is ONLY used for type-matched calls. Signatures must match those your patch intends to block.
 private enum class MethodCall(
     override val definedClassName: String,
     override val methodName: String,
