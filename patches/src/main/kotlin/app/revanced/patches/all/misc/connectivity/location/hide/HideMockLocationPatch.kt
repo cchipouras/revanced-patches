@@ -23,27 +23,28 @@ val hideMockLocationPatch = bytecodePatch(
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
+                // Only operate on invoke* instructions that call our target methods.
                 val ref = instruction.getReference() as? MethodReference ?: return@filter null
-                val target = fromMethodReference(ref)
-                if (target == null) return@filter null
+                val target = fromMethodReference(ref) ?: return@filter null
 
                 when (instruction.opcode) {
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_VIRTUAL,
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_INTERFACE,
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_DIRECT,
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_STATIC,
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_SUPER,
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_VIRTUAL_RANGE,
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_INTERFACE_RANGE,
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_DIRECT_RANGE,
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_STATIC_RANGE,
-                    com.android.tools.smali.dexlib2.Opcode.INVOKE_SUPER_RANGE -> (instruction to instructionIndex)
+                    Opcode.INVOKE_VIRTUAL,
+                    Opcode.INVOKE_INTERFACE,
+                    Opcode.INVOKE_DIRECT,
+                    Opcode.INVOKE_STATIC,
+                    Opcode.INVOKE_SUPER,
+                    Opcode.INVOKE_VIRTUAL_RANGE,
+                    Opcode.INVOKE_INTERFACE_RANGE,
+                    Opcode.INVOKE_DIRECT_RANGE,
+                    Opcode.INVOKE_STATIC_RANGE,
+                    Opcode.INVOKE_SUPER_RANGE -> (instruction to instructionIndex)
                     else -> return@filter null
                 }
             },
             transform = { method, entry ->
                 val (invokeInsn, index) = entry
 
+                // Determine a safe target register to overwrite with `false`.
                 val targetReg: Int? = when (invokeInsn) {
                     is FiveRegisterInstruction -> invokeInsn.registerC
                     is RegisterRangeInstruction -> invokeInsn.startRegister
@@ -55,6 +56,8 @@ val hideMockLocationPatch = bytecodePatch(
                 val nextIndex = index + 1
                 if (nextIndex >= impl.instructions.size) return@transform
 
+                // Replace the instruction immediately following the invoke
+                // with a constant false to force a non-mock result.
                 method.replaceInstruction(nextIndex, "const/4 v$targetReg, 0x0")
             }
         )
