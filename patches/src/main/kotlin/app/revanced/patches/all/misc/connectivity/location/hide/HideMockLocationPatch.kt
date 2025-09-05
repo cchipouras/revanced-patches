@@ -25,7 +25,7 @@ val hideMockLocationPatch = bytecodePatch(
                 val ref = instruction.getReference() as? MethodReference ?: return@filter null
                 val target: IMethodCall? = fromMethodReference(ref)
                 if (target == null) {
-                    // for debugging mismatches, uncomment this:
+                    // For debug:
                     // println("Unmatched method: ${ref.definingClass}:${ref.name} params=${ref.parameterTypes} return=${ref.returnType}")
                     return@filter null
                 }
