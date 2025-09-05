@@ -22,9 +22,7 @@ val hideMockLocationPatch = bytecodePatch(
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
-                // Explicit generic to avoid Nothing inference
                 val ref = instruction.getReference<MethodReference>() ?: return@filter null
-                // Explicit type param to avoid enum/interface inference conflicts
                 val target = fromMethodReference<MethodCall>(ref) ?: return@filter null
 
                 when (instruction.opcode) {
@@ -44,7 +42,6 @@ val hideMockLocationPatch = bytecodePatch(
             transform = transform@{ method, entry ->
                 val (invokeInsn, index) = entry
 
-                // Determine a candidate register to hold the forced boolean
                 val targetReg: Int = when (invokeInsn) {
                     is FiveRegisterInstruction -> invokeInsn.registerC
                     is RegisterRangeInstruction -> invokeInsn.startRegister
@@ -54,8 +51,8 @@ val hideMockLocationPatch = bytecodePatch(
                 val impl = method.implementation ?: return@transform
                 val instructions = impl.instructions
 
-                // Look forward for a MOVE_RESULT* and ONLY patch if we find it
-                val maxLookahead = 8
+                // Only patch when a MOVE_RESULT* is found. Otherwise skip safely.
+                val maxLookahead = 12
                 var moveResultIndex: Int? = null
                 var i = index + 1
                 while (i < instructions.size && i <= index + maxLookahead) {
@@ -72,11 +69,10 @@ val hideMockLocationPatch = bytecodePatch(
                 }
 
                 if (moveResultIndex == null) {
-                    // No legal, compilable target — skip this site to avoid build failures
+                    // No legal target; skip this call site to avoid build failures.
                     return@transform
                 }
 
-                // Replace the move-result* with constant false
                 method.replaceInstruction(moveResultIndex, "const/4 v$targetReg, 0x0")
             }
         )
@@ -89,6 +85,7 @@ private enum class MethodCall(
     override val methodParams: Array<String>,
     override val returnType: String,
 ) : IMethodCall {
-    IsMock("Landroid/location/Location;", "IsMock", emptyArray(), "Z"),
+    // Use the exact case used in your target app. If it’s "isMock", change it back to lowercase.
+    IsMock("Landroid/location/Location;", "isMock", emptyArray(), "Z"),
     IsFromMockProvider("Landroid/location/Location;", "isFromMockProvider", emptyArray(), "Z"),
 }
