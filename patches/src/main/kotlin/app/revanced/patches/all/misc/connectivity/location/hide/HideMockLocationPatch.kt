@@ -23,7 +23,12 @@ val hideMockLocationPatch = bytecodePatch(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
                 val ref = instruction.getReference() as? MethodReference ?: return@filter null
-                val target: IMethodCall = fromMethodReference(ref) ?: return@filter null
+                val target: IMethodCall? = fromMethodReference(ref)
+                if (target == null) {
+                    // for debugging mismatches, uncomment this:
+                    // println("Unmatched method: ${ref.definingClass}:${ref.name} params=${ref.parameterTypes} return=${ref.returnType}")
+                    return@filter null
+                }
                 when (instruction.opcode) {
                     Opcode.INVOKE_VIRTUAL,
                     Opcode.INVOKE_INTERFACE,
