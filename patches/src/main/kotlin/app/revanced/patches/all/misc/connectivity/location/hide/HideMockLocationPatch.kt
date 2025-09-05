@@ -8,6 +8,7 @@ import app.revanced.patches.all.misc.transformation.IMethodCall
 import app.revanced.patches.all.misc.transformation.fromMethodReference
 import app.revanced.patches.all.misc.transformation.transformInstructionsPatch
 import app.revanced.util.getReference
+
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
@@ -22,9 +23,10 @@ val hideMockLocationPatch = bytecodePatch(
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
+                // Use generic argument on getReference and fromMethodReference!
                 val ref = instruction.getReference<MethodReference>() ?: return@filter null
-                val target = fromMethodReference(ref)
-                if (target !is IMethodCall) return@filter null
+                val target = fromMethodReference<MethodCall>(ref) ?: return@filter null
+                // No type constraint errors after this.
                 when (instruction.opcode) {
                     Opcode.INVOKE_VIRTUAL,
                     Opcode.INVOKE_INTERFACE,
