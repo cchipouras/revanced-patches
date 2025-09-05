@@ -10,7 +10,6 @@ import app.revanced.patches.all.misc.transformation.transformInstructionsPatch
 import app.revanced.util.getReference
 
 import com.android.tools.smali.dexlib2.Opcode
-import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
@@ -29,17 +28,17 @@ val hideMockLocationPatch = bytecodePatch(
                 if (target == null) return@filter null
 
                 when (instruction.opcode) {
-                    Opcode.INVOKE_VIRTUAL,
-                    Opcode.INVOKE_INTERFACE,
-                    Opcode.INVOKE_DIRECT,
-                    Opcode.INVOKE_STATIC,
-                    Opcode.INVOKE_SUPER,
-                    Opcode.INVOKE_VIRTUAL_RANGE,
-                    Opcode.INVOKE_INTERFACE_RANGE,
-                    Opcode.INVOKE_DIRECT_RANGE,
-                    Opcode.INVOKE_STATIC_RANGE,
-                    Opcode.INVOKE_SUPER_RANGE -> (instruction to instructionIndex)
-                    else -> null
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_VIRTUAL,
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_INTERFACE,
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_DIRECT,
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_STATIC,
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_SUPER,
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_VIRTUAL_RANGE,
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_INTERFACE_RANGE,
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_DIRECT_RANGE,
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_STATIC_RANGE,
+                    com.android.tools.smali.dexlib2.Opcode.INVOKE_SUPER_RANGE -> (instruction to instructionIndex)
+                    else -> return@filter null
                 }
             },
             transform = { method, entry ->
