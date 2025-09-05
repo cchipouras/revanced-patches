@@ -15,14 +15,6 @@ import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 
-/**
- * Hide mock location
- * Prevents the app from detecting that location is mocked by forcing a `false` result.
- *
- * The original version assumed all matched instructions implement FiveRegisterInstruction,
- * which crashes when the method call is encoded as a range invoke (3rc).
- * This version supports both 35c and 3rc forms and skips unsupported shapes safely.
- */
 @Suppress("unused")
 val hideMockLocationPatch = bytecodePatch(
     name = "Hide mock location",
@@ -32,9 +24,9 @@ val hideMockLocationPatch = bytecodePatch(
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
-                // Only consider invoke* opcodes we can handle and that match our target methods.
                 val ref = instruction.getReference() as? MethodReference ?: return@filter null
-                val target = fromMethodReference(ref) ?: return@filter null
+                val target = fromMethodReference(ref)
+                if (target == null) return@filter null
 
                 when (instruction.opcode) {
                     Opcode.INVOKE_VIRTUAL,
@@ -53,22 +45,17 @@ val hideMockLocationPatch = bytecodePatch(
             transform = { method, entry ->
                 val (invokeInsn, index) = entry
 
-                // Determine a reasonable target register to overwrite with `false`.
-                // For 35c we use registerC (typical receiver/arg position for boolean results handling).
-                // For 3rc we best-effort use startRegister. If this doesn't match a following move-result,
-                // the patch will still be no-op-safe (we skip when we cannot place).
-                val targetReg: Int = when (invokeInsn) {
+                val targetReg: Int? = when (invokeInsn) {
                     is FiveRegisterInstruction -> invokeInsn.registerC
                     is RegisterRangeInstruction -> invokeInsn.startRegister
-                    else -> return@transform // unsupported shape; skip safely
+                    else -> null
                 }
+                if (targetReg == null) return@transform
 
                 val impl = method.implementation ?: return@transform
                 val nextIndex = index + 1
                 if (nextIndex >= impl.instructions.size) return@transform
 
-                // Most compilers place a move-result* immediately after an invoke that returns a value.
-                // We simply replace that following slot with a const/4 false to force the outcome.
                 method.replaceInstruction(nextIndex, "const/4 v$targetReg, 0x0")
             }
         )
