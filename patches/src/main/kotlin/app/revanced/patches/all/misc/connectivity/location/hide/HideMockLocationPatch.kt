@@ -8,7 +8,6 @@ import app.revanced.patches.all.misc.transformation.IMethodCall
 import app.revanced.patches.all.misc.transformation.fromMethodReference
 import app.revanced.patches.all.misc.transformation.transformInstructionsPatch
 import app.revanced.util.getReference
-
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
@@ -23,9 +22,17 @@ val hideMockLocationPatch = bytecodePatch(
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
-                // Only operate on invoke* instructions that call our target methods.
-                val ref = instruction.getReference() as? MethodReference ?: return@filter null
-                val target = fromMethodReference(ref) ?: return@filter null
+                val ref = instruction.getReference()
+                // If the reference isn't a MethodReference, skip
+                if (ref !is MethodReference) return@filter null
+
+                val target = try {
+                    fromMethodReference(ref)
+                } catch (_: Throwable) {
+                    null
+                }
+                // Make 100% sure it's the correct type—accept only genuine IMethodCall
+                val methodCall = target as? IMethodCall ?: return@filter null
 
                 when (instruction.opcode) {
                     Opcode.INVOKE_VIRTUAL,
@@ -37,33 +44,29 @@ val hideMockLocationPatch = bytecodePatch(
                     Opcode.INVOKE_INTERFACE_RANGE,
                     Opcode.INVOKE_DIRECT_RANGE,
                     Opcode.INVOKE_STATIC_RANGE,
-                    Opcode.INVOKE_SUPER_RANGE -> (instruction to instructionIndex)
+                    Opcode.INVOKE_SUPER_RANGE -> instruction to instructionIndex
                     else -> return@filter null
                 }
             },
-            transform = { method, entry ->
+            transform = transform@{ method, entry ->
                 val (invokeInsn, index) = entry
-
-                // Determine a safe target register to overwrite with `false`.
-                val targetReg: Int? = when (invokeInsn) {
+                // Only accept supported instruction types; otherwise, skip
+                val targetReg: Int = when (invokeInsn) {
                     is FiveRegisterInstruction -> invokeInsn.registerC
                     is RegisterRangeInstruction -> invokeInsn.startRegister
-                    else -> null
+                    else -> return@transform
                 }
-                if (targetReg == null) return@transform
-
                 val impl = method.implementation ?: return@transform
                 val nextIndex = index + 1
                 if (nextIndex >= impl.instructions.size) return@transform
-
-                // Replace the instruction immediately following the invoke
-                // with a constant false to force a non-mock result.
+                // Overwrite with constant false
                 method.replaceInstruction(nextIndex, "const/4 v$targetReg, 0x0")
             }
         )
     )
 }
 
+// This enum is ONLY used for type-matched calls. Signatures must match those your patch intends to block.
 private enum class MethodCall(
     override val definedClassName: String,
     override val methodName: String,
