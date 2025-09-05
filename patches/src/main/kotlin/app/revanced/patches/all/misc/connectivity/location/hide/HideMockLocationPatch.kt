@@ -16,15 +16,13 @@ import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 @Suppress("unused")
 val hideMockLocationPatch = bytecodePatch(
     name = "Hide mock location",
-    description = "Prevents the app from knowing the device location is being mocked by a third party app.",
+    description = "Prevents apps from detecting mock/fake GPS locations by making isMock() and isFromMockProvider() always return false",
     use = false,
 ) {
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
-                // EXPLICIT generic to avoid Nothing
                 val ref: MethodReference = instruction.getReference<MethodReference>() ?: return@filter null
-                // EXPLICIT enum type parameter; keep the value as MethodCall?
                 val target: MethodCall? = fromMethodReference<MethodCall>(ref)
                 if (target == null) return@filter null
 
@@ -54,39 +52,32 @@ val hideMockLocationPatch = bytecodePatch(
                 val impl = method.implementation ?: return@transform
                 val instructions = impl.instructions
 
-                // Only patch when a MOVE_RESULT* is actually present. Otherwise skip.
-                val maxLookahead = 12
-                var moveResultIndex: Int? = null
-                var i = index + 1
-                while (i < instructions.size && i <= index + maxLookahead) {
+                // Look for move-result in next few instructions
+                for (i in (index + 1) until minOf(index + 5, instructions.size)) {
                     when (instructions[i].opcode) {
-                        Opcode.MOVE_RESULT,
-                        Opcode.MOVE_RESULT_WIDE,
-                        Opcode.MOVE_RESULT_OBJECT -> {
-                            moveResultIndex = i
-                            break
+                        Opcode.MOVE_RESULT -> {
+                            method.replaceInstruction(i, "const/4 v$targetReg, 0x0")
+                            return@transform
                         }
-                        else -> { /* keep scanning */ }
+                        else -> continue
                     }
-                    i++
                 }
-
-                if (moveResultIndex == null) return@transform
-
-                method.replaceInstruction(moveResultIndex, "const/4 v$targetReg, 0x0")
+                
+                // If no move-result found, safely skip
+                return@transform
             }
         )
     )
 }
 
-// IMPORTANT: This enum is the concrete type used for fromMethodReference<T>()
-// Make sure the method names (including case) match your target.
 private enum class MethodCall(
     override val definedClassName: String,
     override val methodName: String,
     override val methodParams: Array<String>,
     override val returnType: String,
 ) : IMethodCall {
+    // Modern Android (API 31+)
     IsMock("Landroid/location/Location;", "isMock", emptyArray(), "Z"),
+    // Legacy Android (API < 31) 
     IsFromMockProvider("Landroid/location/Location;", "isFromMockProvider", emptyArray(), "Z"),
 }
