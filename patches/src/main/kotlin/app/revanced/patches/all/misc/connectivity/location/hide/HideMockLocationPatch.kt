@@ -22,9 +22,9 @@ val hideMockLocationPatch = bytecodePatch(
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
-                // Important: provide the generic so Kotlin doesn't infer Nothing
+                // Explicit generic to avoid Nothing inference
                 val ref = instruction.getReference<MethodReference>() ?: return@filter null
-                // Important: specify the enum type the patcher expects
+                // Explicit type param to avoid enum/interface inference conflicts
                 val target = fromMethodReference<MethodCall>(ref) ?: return@filter null
 
                 when (instruction.opcode) {
@@ -44,7 +44,7 @@ val hideMockLocationPatch = bytecodePatch(
             transform = transform@{ method, entry ->
                 val (invokeInsn, index) = entry
 
-                // Determine the best-effort target register to force-false into.
+                // Determine a candidate register to hold the forced boolean
                 val targetReg: Int = when (invokeInsn) {
                     is FiveRegisterInstruction -> invokeInsn.registerC
                     is RegisterRangeInstruction -> invokeInsn.startRegister
@@ -54,36 +54,30 @@ val hideMockLocationPatch = bytecodePatch(
                 val impl = method.implementation ?: return@transform
                 val instructions = impl.instructions
 
-                // OPTION A: Search up to N instructions forward for a MOVE_RESULT*
-                // and replace that instruction with `const/4 vX, 0x0`.
-                val maxLookahead = 5
-                var patchIndex: Int? = null
+                // Look forward for a MOVE_RESULT* and ONLY patch if we find it
+                val maxLookahead = 8
+                var moveResultIndex: Int? = null
                 var i = index + 1
                 while (i < instructions.size && i <= index + maxLookahead) {
-                    val op = instructions[i].opcode
-                    // Match any MOVE_RESULT family (MOVE_RESULT, MOVE_RESULT_WIDE, MOVE_RESULT_OBJECT)
-                    if (op == Opcode.MOVE_RESULT ||
-                        op == Opcode.MOVE_RESULT_WIDE ||
-                        op == Opcode.MOVE_RESULT_OBJECT
-                    ) {
-                        patchIndex = i
-                        break
+                    when (instructions[i].opcode) {
+                        Opcode.MOVE_RESULT,
+                        Opcode.MOVE_RESULT_WIDE,
+                        Opcode.MOVE_RESULT_OBJECT -> {
+                            moveResultIndex = i
+                            break
+                        }
+                        else -> { /* keep scanning */ }
                     }
                     i++
                 }
 
-                if (patchIndex != null) {
-                    // Replace the move-result with `const/4 vX, 0x0`.
-                    method.replaceInstruction(patchIndex, "const/4 v$targetReg, 0x0")
+                if (moveResultIndex == null) {
+                    // No legal, compilable target — skip this site to avoid build failures
                     return@transform
                 }
 
-                // Safe fallback: if the next slot exists, attempt the original behavior.
-                val nextIndex = index + 1
-                if (nextIndex < instructions.size) {
-                    method.replaceInstruction(nextIndex, "const/4 v$targetReg, 0x0")
-                }
-                // If neither path works, we safely skip without throwing.
+                // Replace the move-result* with constant false
+                method.replaceInstruction(moveResultIndex, "const/4 v$targetReg, 0x0")
             }
         )
     )
@@ -95,6 +89,6 @@ private enum class MethodCall(
     override val methodParams: Array<String>,
     override val returnType: String,
 ) : IMethodCall {
-    IsMock("Landroid/location/Location;", "isMock", emptyArray(), "Z"),
+    IsMock("Landroid/location/Location;", "IsMock", emptyArray(), "Z"),
     IsFromMockProvider("Landroid/location/Location;", "isFromMockProvider", emptyArray(), "Z"),
 }
