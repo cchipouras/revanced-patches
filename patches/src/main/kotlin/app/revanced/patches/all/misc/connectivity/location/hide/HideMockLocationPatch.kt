@@ -8,7 +8,6 @@ import app.revanced.patches.all.misc.transformation.IMethodCall
 import app.revanced.patches.all.misc.transformation.fromMethodReference
 import app.revanced.patches.all.misc.transformation.transformInstructionsPatch
 import app.revanced.util.getReference
-
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.RegisterRangeInstruction
@@ -23,10 +22,11 @@ val hideMockLocationPatch = bytecodePatch(
     dependsOn(
         transformInstructionsPatch(
             filterMap = filter@{ _, _, instruction, instructionIndex ->
-                // Use generic argument on getReference and fromMethodReference!
+                // Important: provide the generic so Kotlin doesn't infer Nothing
                 val ref = instruction.getReference<MethodReference>() ?: return@filter null
+                // Important: specify the enum type the patcher expects
                 val target = fromMethodReference<MethodCall>(ref) ?: return@filter null
-                // No type constraint errors after this.
+
                 when (instruction.opcode) {
                     Opcode.INVOKE_VIRTUAL,
                     Opcode.INVOKE_INTERFACE,
@@ -43,15 +43,47 @@ val hideMockLocationPatch = bytecodePatch(
             },
             transform = transform@{ method, entry ->
                 val (invokeInsn, index) = entry
+
+                // Determine the best-effort target register to force-false into.
                 val targetReg: Int = when (invokeInsn) {
                     is FiveRegisterInstruction -> invokeInsn.registerC
                     is RegisterRangeInstruction -> invokeInsn.startRegister
                     else -> return@transform
                 }
+
                 val impl = method.implementation ?: return@transform
+                val instructions = impl.instructions
+
+                // OPTION A: Search up to N instructions forward for a MOVE_RESULT*
+                // and replace that instruction with `const/4 vX, 0x0`.
+                val maxLookahead = 5
+                var patchIndex: Int? = null
+                var i = index + 1
+                while (i < instructions.size && i <= index + maxLookahead) {
+                    val op = instructions[i].opcode
+                    // Match any MOVE_RESULT family (MOVE_RESULT, MOVE_RESULT_WIDE, MOVE_RESULT_OBJECT)
+                    if (op == Opcode.MOVE_RESULT ||
+                        op == Opcode.MOVE_RESULT_WIDE ||
+                        op == Opcode.MOVE_RESULT_OBJECT
+                    ) {
+                        patchIndex = i
+                        break
+                    }
+                    i++
+                }
+
+                if (patchIndex != null) {
+                    // Replace the move-result with `const/4 vX, 0x0`.
+                    method.replaceInstruction(patchIndex, "const/4 v$targetReg, 0x0")
+                    return@transform
+                }
+
+                // Safe fallback: if the next slot exists, attempt the original behavior.
                 val nextIndex = index + 1
-                if (nextIndex >= impl.instructions.size) return@transform
-                method.replaceInstruction(nextIndex, "const/4 v$targetReg, 0x0")
+                if (nextIndex < instructions.size) {
+                    method.replaceInstruction(nextIndex, "const/4 v$targetReg, 0x0")
+                }
+                // If neither path works, we safely skip without throwing.
             }
         )
     )
